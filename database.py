@@ -114,6 +114,16 @@ def get_subjects(teacher_id):
     conn.close()
     return subjects
 
+def get_all_subjects_for_admin():
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute('''SELECT s.*, t.name as teacher_name 
+                 FROM subjects s 
+                 LEFT JOIN teachers t ON s.teacher_id = t.id''')
+    subjects = c.fetchall()
+    conn.close()
+    return subjects
+
 def delete_subject(subject_id):
     conn = get_connection()
     c = conn.cursor()
