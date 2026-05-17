@@ -86,6 +86,38 @@ def get_or_create_teacher(name):
     conn.close()
     return teacher
 
+def get_all_users_for_admin():
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT id, name FROM teachers WHERE name != 'Manasa' COLLATE NOCASE")
+    users = c.fetchall()
+    conn.close()
+    return users
+
+def delete_teacher(teacher_id):
+    conn = get_connection()
+    c = conn.cursor()
+    
+    # 1. Get all subjects for this teacher
+    c.execute("SELECT id FROM subjects WHERE teacher_id = ?", (teacher_id,))
+    subject_ids = [row[0] for row in c.fetchall()]
+    
+    # 2. Delete all related data for each subject manually
+    for sid in subject_ids:
+        c.execute("DELETE FROM syllabus WHERE subject_id = ?", (sid,))
+        c.execute("DELETE FROM course_outcomes WHERE subject_id = ?", (sid,))
+        c.execute("DELETE FROM reference_materials WHERE subject_id = ?", (sid,))
+        c.execute("DELETE FROM question_papers WHERE subject_id = ?", (sid,))
+        
+    # 3. Delete the subjects
+    c.execute("DELETE FROM subjects WHERE teacher_id = ?", (teacher_id,))
+    
+    # 4. Delete the teacher
+    c.execute("DELETE FROM teachers WHERE id = ?", (teacher_id,))
+    
+    conn.commit()
+    conn.close()
+
 # --- Subjects ---
 
 def add_subject(teacher_id, name, code, semester):
@@ -127,6 +159,12 @@ def get_all_subjects_for_admin():
 def delete_subject(subject_id):
     conn = get_connection()
     c = conn.cursor()
+    # Explicitly cascade deletes manually in case PRAGMA foreign_keys is OFF
+    c.execute("DELETE FROM syllabus WHERE subject_id = ?", (subject_id,))
+    c.execute("DELETE FROM course_outcomes WHERE subject_id = ?", (subject_id,))
+    c.execute("DELETE FROM reference_materials WHERE subject_id = ?", (subject_id,))
+    c.execute("DELETE FROM question_papers WHERE subject_id = ?", (subject_id,))
+    
     c.execute("DELETE FROM subjects WHERE id = ?", (subject_id,))
     conn.commit()
     conn.close()

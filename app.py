@@ -55,7 +55,26 @@ if auth.check_authentication():
         
     if tab5 is not None:
         with tab5:
-            st.subheader("Admin Panel - All Users' Data")
+            st.subheader("Admin Panel")
+            
+            st.markdown("#### 👥 Manage Users")
+            all_users = db.get_all_users_for_admin()
+            if all_users:
+                for u in all_users:
+                    u_id, u_name = u
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.write(f"**User:** {u_name} (ID: {u_id})")
+                    with col2:
+                        if st.button("Delete User", key=f"admin_del_user_{u_id}", type="primary"):
+                            db.delete_teacher(u_id)
+                            st.success(f"User {u_name} and all their data deleted!")
+                            st.rerun()
+            else:
+                st.info("No other users found.")
+                
+            st.markdown("---")
+            st.markdown("#### 📚 Manage All Subjects")
             all_subjects = db.get_all_subjects_for_admin()
             
             if all_subjects:
