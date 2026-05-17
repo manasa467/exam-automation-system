@@ -1,0 +1,268 @@
+import sqlite3
+import json
+
+DB_NAME = "academy.db"
+
+def get_connection():
+    return sqlite3.connect(DB_NAME)
+
+def init_db():
+    conn = get_connection()
+    c = conn.cursor()
+
+    c.execute('''CREATE TABLE IF NOT EXISTS teachers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL
+                )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS subjects (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    teacher_id INTEGER,
+                    subject_name TEXT NOT NULL,
+                    course_code TEXT NOT NULL UNIQUE,
+                    semester TEXT NOT NULL,
+                    FOREIGN KEY (teacher_id) REFERENCES teachers (id)
+                )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS syllabus (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    subject_id INTEGER,
+                    module_number INTEGER,
+                    content TEXT,
+                    FOREIGN KEY (subject_id) REFERENCES subjects (id) ON DELETE CASCADE
+                )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS course_outcomes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    subject_id INTEGER,
+                    co_number TEXT,
+                    description TEXT,
+                    FOREIGN KEY (subject_id) REFERENCES subjects (id) ON DELETE CASCADE
+                )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS reference_materials (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    subject_id INTEGER,
+                    reference_text TEXT,
+                    reference_pdf_path TEXT,
+                    FOREIGN KEY (subject_id) REFERENCES subjects (id) ON DELETE CASCADE
+                )''')
+
+    # Migration guard for existing DBs
+    try:
+        c.execute("ALTER TABLE reference_materials ADD COLUMN reference_pdf_path TEXT")
+    except sqlite3.OperationalError:
+        pass
+    
+    # Migration guard for unique constraint on course_code (for existing databases)
+    try:
+        c.execute("CREATE UNIQUE INDEX idx_subjects_course_code ON subjects(course_code)")
+    except sqlite3.OperationalError:
+        pass
+
+    c.execute('''CREATE TABLE IF NOT EXISTS question_papers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    subject_id INTEGER,
+                    pattern_type TEXT,
+                    content TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (subject_id) REFERENCES subjects (id)
+                )''')
+
+    conn.commit()
+    conn.close()
+
+# --- Teachers ---
+
+def get_or_create_teacher(name):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT id, name FROM teachers WHERE name = ?", (name,))
+    teacher = c.fetchone()
+    if not teacher:
+        c.execute("INSERT INTO teachers (name) VALUES (?)", (name,))
+        conn.commit()
+        teacher = (c.lastrowid, name)
+    conn.close()
+    return teacher
+
+# --- Subjects ---
+
+def add_subject(teacher_id, name, code, semester):
+    conn = get_connection()
+    c = conn.cursor()
+    
+    # Check if course code already exists
+    c.execute("SELECT id FROM subjects WHERE course_code = ?", (code,))
+    existing = c.fetchone()
+    if existing:
+        conn.close()
+        raise ValueError(f"Course code '{code}' already exists. Please use a unique course code.")
+    
+    c.execute("INSERT INTO subjects (teacher_id, subject_name, course_code, semester) VALUES (?, ?, ?, ?)",
+              (teacher_id, name, code, semester))
+    conn.commit()
+    subject_id = c.lastrowid
+    conn.close()
+    return subject_id
+
+def get_subjects(teacher_id):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM subjects WHERE teacher_id = ?", (teacher_id,))
+    subjects = c.fetchall()
+    conn.close()
+    return subjects
+
+def delete_subject(subject_id):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM subjects WHERE id = ?", (subject_id,))
+    conn.commit()
+    conn.close()
+
+# --- Syllabus ---
+
+def add_syllabus(subject_id, module_number, content):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM syllabus WHERE subject_id = ?", (subject_id,))
+    if c.fetchone()[0] >= 5:
+        conn.close()
+        raise ValueError("Only 5 modules are allowed per subject.")
+    c.execute("INSERT INTO syllabus (subject_id, module_number, content) VALUES (?, ?, ?)",
+              (subject_id, module_number, content))
+    conn.commit()
+    conn.close()
+
+def get_syllabus(subject_id):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM syllabus WHERE subject_id = ? ORDER BY module_number", (subject_id,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def check_syllabus_exists(subject_id, module_number):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM syllabus WHERE subject_id = ? AND module_number = ?", (subject_id, module_number))
+    exists = c.fetchone() is not None
+    conn.close()
+    return exists
+
+def update_syllabus(id, content):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("UPDATE syllabus SET content = ? WHERE id = ?", (content, id))
+    conn.commit()
+    conn.close()
+
+def delete_syllabus(id):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM syllabus WHERE id = ?", (id,))
+    conn.commit()
+    conn.close()
+
+# --- Course Outcomes ---
+
+def add_co(subject_id, co_number, description):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM course_outcomes WHERE subject_id = ?", (subject_id,))
+    if c.fetchone()[0] >= 5:
+        conn.close()
+        raise ValueError("Only 5 Course Outcomes are allowed per subject.")
+    c.execute("INSERT INTO course_outcomes (subject_id, co_number, description) VALUES (?, ?, ?)",
+              (subject_id, co_number, description))
+    conn.commit()
+    conn.close()
+
+def get_cos(subject_id):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM course_outcomes WHERE subject_id = ? ORDER BY co_number", (subject_id,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def check_co_exists(subject_id, co_number):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM course_outcomes WHERE subject_id = ? AND co_number = ?", (subject_id, co_number))
+    exists = c.fetchone() is not None
+    conn.close()
+    return exists
+
+def update_co(id, description):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("UPDATE course_outcomes SET description = ? WHERE id = ?", (description, id))
+    conn.commit()
+    conn.close()
+
+def delete_co(id):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM course_outcomes WHERE id = ?", (id,))
+    conn.commit()
+    conn.close()
+
+# --- Reference Materials ---
+
+def add_reference(subject_id, text, pdf_path=None):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM reference_materials WHERE subject_id = ?", (subject_id,))
+    if c.fetchone()[0] >= 5:
+        conn.close()
+        raise ValueError("Only 5 references are allowed per subject.")
+    c.execute("INSERT INTO reference_materials (subject_id, reference_text, reference_pdf_path) VALUES (?, ?, ?)",
+              (subject_id, text, pdf_path))
+    conn.commit()
+    conn.close()
+
+def get_references(subject_id):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM reference_materials WHERE subject_id = ?", (subject_id,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def get_reference_by_id(id):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM reference_materials WHERE id = ?", (id,))
+    row = c.fetchone()
+    conn.close()
+    return row
+
+def update_reference(id, text, pdf_path=None):
+    conn = get_connection()
+    c = conn.cursor()
+    if pdf_path:
+        c.execute("UPDATE reference_materials SET reference_text = ?, reference_pdf_path = ? WHERE id = ?",
+                  (text, pdf_path, id))
+    else:
+        c.execute("UPDATE reference_materials SET reference_text = ? WHERE id = ?", (text, id))
+    conn.commit()
+    conn.close()
+
+def delete_reference(id):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM reference_materials WHERE id = ?", (id,))
+    conn.commit()
+    conn.close()
+
+# --- Question Papers ---
+
+def save_question_paper(subject_id, pattern_type, content_json):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("INSERT INTO question_papers (subject_id, pattern_type, content) VALUES (?, ?, ?)",
+              (subject_id, pattern_type, json.dumps(content_json)))
+    conn.commit()
+    conn.close()

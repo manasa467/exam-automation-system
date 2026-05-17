@@ -1,0 +1,21 @@
+# API Key - never upload this
+.env
+
+# Local database - don't upload
+academy.db
+*.db
+*.sqlite
+
+# Python cache files - auto-generated junk
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment - very large, no need to upload
+.venv/
+
+# Streamlit local secrets (if you ever create this)
+.streamlit/secrets.toml
+
+# VS Code settings
+.idea/
