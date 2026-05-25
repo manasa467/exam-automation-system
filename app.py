@@ -3,6 +3,15 @@ import auth
 import database as db
 from tabs import subjects, qp_generator, scheme_generator
 
+# Hide Streamlit default menu items
+st.markdown("""
+    <style>
+    [data-testid="stToolbarActionButtonIcon"] {
+        display: none;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 st.set_page_config(
     page_title="AI Based Exam Automation System",
     page_icon="🎓",
