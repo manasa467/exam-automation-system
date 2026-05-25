@@ -6,8 +6,18 @@ from tabs import subjects, qp_generator, scheme_generator
 # Hide Streamlit default menu items
 st.markdown("""
     <style>
-    [data-testid="stToolbarActionButtonIcon"] {
-        display: none;
+    /* Hide top right toolbar buttons */
+    [data-testid="stToolbar"] {
+        display: none !important;
+    }
+    header[data-testid="stHeader"] {
+        display: none !important;
+    }
+    #MainMenu {
+        display: none !important;
+    }
+    footer {
+        display: none !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -18,6 +28,13 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+hide_streamlit_style = """
+    <style>
+    [data-testid="stToolbarActions"] {display: none;}
+    </style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 db.init_db()
 
