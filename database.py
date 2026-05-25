@@ -1,5 +1,10 @@
 import sqlite3
 import json
+import hashlib
+import secrets
+
+ADMIN_USERNAME = "Manasa"
+ADMIN_PASSWORD = "Manasa@1208"
 
 DB_NAME = "academy.db"
 
@@ -60,6 +65,14 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # Sessions table for secure token-based auth
+    c.execute('''CREATE TABLE IF NOT EXISTS sessions (
+                    token TEXT PRIMARY KEY,
+                    teacher_id INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (teacher_id) REFERENCES teachers (id)
+                )''')
+
     c.execute('''CREATE TABLE IF NOT EXISTS question_papers (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     subject_id INTEGER,
@@ -69,6 +82,45 @@ def init_db():
                     FOREIGN KEY (subject_id) REFERENCES subjects (id)
                 )''')
 
+    # Migration guards: add password columns if they don't exist yet
+    for col in ['password_hash', 'password_salt']:
+        try:
+            c.execute(f"ALTER TABLE teachers ADD COLUMN {col} TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+    conn.commit()
+    conn.close()
+
+    # Ensure admin account always exists with the correct password
+    _ensure_admin()
+
+# --- Password Helpers ---
+
+def _hash_password(password: str, salt: str = None):
+    """Returns (hash_hex, salt_hex) using PBKDF2-HMAC-SHA256."""
+    if salt is None:
+        salt = secrets.token_hex(16)
+    key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 260000)
+    return key.hex(), salt
+
+def _verify_password(password: str, stored_hash: str, salt: str) -> bool:
+    key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 260000)
+    return key.hex() == stored_hash
+
+def _ensure_admin():
+    """Create or update the Manasa admin account with the hardcoded password."""
+    conn = get_connection()
+    c = conn.cursor()
+    pw_hash, pw_salt = _hash_password(ADMIN_PASSWORD)
+    c.execute("SELECT id FROM teachers WHERE LOWER(name) = LOWER(?)", (ADMIN_USERNAME,))
+    row = c.fetchone()
+    if row:
+        c.execute("UPDATE teachers SET password_hash = ?, password_salt = ? WHERE id = ?",
+                  (pw_hash, pw_salt, row[0]))
+    else:
+        c.execute("INSERT INTO teachers (name, password_hash, password_salt) VALUES (?, ?, ?)",
+                  (ADMIN_USERNAME, pw_hash, pw_salt))
     conn.commit()
     conn.close()
 
@@ -85,6 +137,73 @@ def get_or_create_teacher(name):
         teacher = (c.lastrowid, name)
     conn.close()
     return teacher
+
+def register_teacher(name: str, password: str):
+    """Register a new teacher with a hashed password. Returns (id, name) or raises ValueError."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT id FROM teachers WHERE LOWER(name) = LOWER(?)", (name,))
+    if c.fetchone():
+        conn.close()
+        raise ValueError(f"Username '{name}' is already taken.")
+    pw_hash, pw_salt = _hash_password(password)
+    c.execute("INSERT INTO teachers (name, password_hash, password_salt) VALUES (?, ?, ?)",
+              (name, pw_hash, pw_salt))
+    conn.commit()
+    teacher_id = c.lastrowid
+    conn.close()
+    return (teacher_id, name)
+
+def verify_login(name: str, password: str):
+    """Verify credentials. Returns (id, name) tuple if valid, else None."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT id, name, password_hash, password_salt FROM teachers WHERE LOWER(name) = LOWER(?)", (name,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    t_id, t_name, pw_hash, pw_salt = row
+    if not pw_hash or not pw_salt:
+        return None
+    if _verify_password(password, pw_hash, pw_salt):
+        return (t_id, t_name)
+    return None
+
+# --- Sessions ---
+
+def create_session(teacher_id: int) -> str:
+    """Create a secure opaque session token and store it in the DB."""
+    token = secrets.token_urlsafe(32)
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("INSERT INTO sessions (token, teacher_id) VALUES (?, ?)", (token, teacher_id))
+    conn.commit()
+    conn.close()
+    return token
+
+def get_session(token: str):
+    """Look up a session token. Returns (teacher_id, name) or None."""
+    if not token:
+        return None
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute('''SELECT t.id, t.name FROM sessions s
+                 JOIN teachers t ON s.teacher_id = t.id
+                 WHERE s.token = ?''', (token,))
+    row = c.fetchone()
+    conn.close()
+    return row
+
+def delete_session(token: str):
+    """Remove a session token on logout."""
+    if not token:
+        return
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM sessions WHERE token = ?", (token,))
+    conn.commit()
+    conn.close()
 
 def get_all_users_for_admin():
     conn = get_connection()
